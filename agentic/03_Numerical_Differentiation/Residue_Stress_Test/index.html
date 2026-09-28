@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Residue Theorem Playground</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; background: #fafafa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 12px; }
+  .wrap { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  canvas { border: 1px solid #bbb; background: #fff; cursor: crosshair; touch-action: none; width: 640px; height: 640px; }
+  .panel { width: 420px; font-size: 14px; }
+  .row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=text] { flex: 1; font: 15px ui-monospace, Menlo, monospace; padding: 5px; }
+  button, select { font-size: 13px; padding: 4px 9px; }
+  button.on { background: #333; color: #fff; }
+  .big { font: 15px ui-monospace, Menlo, monospace; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 8px 0; }
+  .big div { margin: 2px 0; }
+  .ok { color: #1a7f37; font-weight: bold; }
+  .bad { color: #c62828; font-weight: bold; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, Menlo, monospace; }
+  td, th { border-bottom: 1px solid #eee; padding: 2px 4px; text-align: right; }
+  .hint { color: #666; font-size: 12px; line-height: 1.4; }
+  #status { color: #a15c00; }
+</style>
+</head>
+<body>
+<h1>Residue Theorem Playground</h1>
+<div class="sub">∮<sub>C</sub> f(z) dz &nbsp;vs&nbsp; 2πi Σ n(C,p) Res<sub>p</sub> f &mdash; two computations that share no code.
+  Left side: Gauss&ndash;Legendre quadrature along your contour. Right side: exact poles (sympy), Laurent-series residues, winding numbers by counting ray crossings.</div>
+
+<div class="wrap">
+  <canvas id="cv" width="640" height="640"></canvas>
+  <div class="panel">
+    <div class="row">f(z) = <input type="text" id="fx" value="tan(z)"> <button id="go">plot</button></div>
+    <div class="row">
+      <select id="preset">
+        <option value="">examples…</option>
+        <option>tan(z)</option>
+        <option>pi*cot(pi*z)/z**2</option>
+        <option>1/(z**5 + z + 1)</option>
+        <option>exp(z)/(z*(exp(z) - 1))</option>
+        <option>(z**2 + 1)/((z - 1)**3*(z + 2*I)*(z - 1.5*I))</option>
+        <option>1/sin(z)**2 + 2/(z - 0.5 - 0.5*I)</option>
+        <option>sqrt(z)</option>
+        <option>exp(1/z)</option>
+      </select>
+      <button id="rand">random rational</button>
+    </div>
+    <div class="row">contour:
+      <button class="mode on" data-m="free">freehand</button>
+      <button class="mode" data-m="circle">circle</button>
+      <button class="mode" data-m="poly">polygon</button>
+      <button id="clear">clear</button>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="shade" checked> shade winding numbers</label>
+      <label><input type="checkbox" id="color" checked> phase portrait</label>
+    </div>
+    <div id="status">loading Python (numpy, sympy, mpmath)… first load takes ~10 s</div>
+    <div class="big" id="result">Draw a closed contour on the plane.</div>
+    <div id="poles"></div>
+    <p class="hint">
+      <b>freehand</b>: drag; it closes itself when you let go. Loop around a pole twice for n = 2, go clockwise for n = −1.<br>
+      <b>circle</b>: drag from the center. <b>polygon</b>: click vertices, double-click to close.<br>
+      Scroll to zoom. Colors show arg f(z); bands show |f| doubling. Poles are where every color meets.<br>
+      Try: a pole close to the contour (the quadrature needs more nodes, so the agreement degrades), or
+      <code>sqrt(z)</code> / <code>exp(1/z)</code>, which are not meromorphic and are refused on the right side.
+    </p>
+  </div>
+</div>
+
+<script type="text/python" id="glue">
+import json, sys
+import numpy as np
+import sympy as sp
+sys.path.insert(0, '.')
+from residue import parse, numeric, why_not_meromorphic, poles, lhs_polygon, rhs
+
+state = {}
+
+def set_function(s, box):
+    f = parse(s)
+    state['f'], state['fn'] = f, numeric(f)
+    reason = why_not_meromorphic(f)
+    P = [] if reason else poles(f, tuple(box))
+    return json.dumps({'reason': reason, 'expr': str(f),
+                       'poles': [[p.real, p.imag, m, r.real, r.imag] for p, m, r in P]})
+
+def image(box, n):
+    """Phase portrait: hue = arg f, brightness bands where |f| doubles."""
+    x = np.linspace(box[0], box[1], n)
+    y = np.linspace(box[3], box[2], n)
+    with np.errstate(all='ignore'):
+        F = state['fn'](x[None, :] + 1j * y[:, None])
+    h = (np.angle(F) / (2 * np.pi)) % 1
+    band = np.log2(np.abs(F)) % 1
+    v = np.where(np.isfinite(band), 0.72 + 0.28 * band, 1.0)
+    s = np.where(np.isfinite(h), 0.55, 0.0)
+    h = np.nan_to_num(h)
+    i = np.floor(h * 6).astype(int) % 6
+    fr = h * 6 - np.floor(h * 6)
+    p, q, t = v * (1 - s), v * (1 - s * fr), v * (1 - s * (1 - fr))
+    r = np.choose(i, [v, q, p, p, t, v]); g = np.choose(i, [t, v, v, q, p, p]); b = np.choose(i, [p, p, t, v, v, q])
+    rgba = np.stack([r, g, b, np.ones_like(r)], -1)
+    return (np.clip(rgba, 0, 1) * 255).astype(np.uint8).tobytes()
+
+def refine(v, h):
+    """Same polygon, every edge split into pieces no longer than h: the Gauss nodes
+    are per edge, so one long edge near a pole would otherwise get only 16 of them."""
+    b = np.roll(v, -1)
+    k = np.maximum(1, np.ceil(np.abs(b - v) / h)).astype(int)
+    return np.concatenate([a + (c - a) * np.arange(n) / n for a, c, n in zip(v, b, k)])
+
+def evaluate(xs, ys, h):
+    v = np.array(json.loads(xs)) + 1j * np.array(json.loads(ys))
+    L = lhs_polygon(state['fn'], refine(v, h), 16)
+    out = {'lhs': [L.real, L.imag]}
+    try:
+        R, table = rhs(state['f'], v)
+    except ValueError as e:          # shown to the user, not hidden
+        out['error'] = str(e)
+        return json.dumps(out)
+    out['rhs'] = [R.real, R.imag]
+    out['table'] = [[p.real, p.imag, m, r.real, r.imag, n] for p, m, r, n in table]
+    return json.dumps(out)
+</script>
+
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = cv.width, IMG = 320;
+let view = {cx: 0, cy: 0, half: 3};
+let py = null, fnInfo = null, bg = null, verts = [], mode = 'free', drawing = false, polyOpen = false;
+const $ = id => document.getElementById(id);
+
+const box = () => [view.cx - view.half, view.cx + view.half, view.cy - view.half, view.cy + view.half];
+const toPx = (x, y) => [(x - view.cx + view.half) / (2 * view.half) * W, (view.cy + view.half - y) / (2 * view.half) * W];
+const toZ = (px, py_) => [view.cx - view.half + px / W * 2 * view.half, view.cy + view.half - py_ / W * 2 * view.half];
+function mouse(e) {
+  const r = cv.getBoundingClientRect();
+  return toZ((e.clientX - r.left) * W / r.width, (e.clientY - r.top) * W / r.height);
+}
+const fmt = (re, im, d = 8) => `${re.toFixed(d)} ${im < 0 ? '−' : '+'} ${Math.abs(im).toFixed(d)}i`;
+
+// ---------------------------------------------------------------- winding number (JS copy of residue.winding)
+function winding(px, py_) {
+  let w = 0;
+  for (let k = 0; k < verts.length; k++) {
+    const [ax, ay] = verts[k], [bx, by] = verts[(k + 1) % verts.length];
+    const left = (ax - px) * (by - py_) - (ay - py_) * (bx - px);
+    if (ay <= py_ && by > py_ && left > 0) w++;
+    else if (ay > py_ && by <= py_ && left < 0) w--;
+  }
+  return w;
+}
+
+// ---------------------------------------------------------------- drawing
+function draw() {
+  ctx.clearRect(0, 0, W, W);
+  if (bg && $('color').checked) { ctx.imageSmoothingEnabled = true; ctx.drawImage(bg, 0, 0, W, W); }
+  // axes and grid
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 1;
+  const step = Math.pow(10, Math.floor(Math.log10(view.half)));
+  for (let g = Math.ceil((view.cx - view.half) / step) * step; g <= view.cx + view.half; g += step) {
+    const [x] = toPx(g, 0); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, W); ctx.stroke();
+  }
+  for (let g = Math.ceil((view.cy - view.half) / step) * step; g <= view.cy + view.half; g += step) {
+    const [, y] = toPx(0, g); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  const [ox, oy] = toPx(0, 0);
+  ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, W); ctx.moveTo(0, oy); ctx.lineTo(W, oy); ctx.stroke();
+  ctx.fillStyle = '#000'; ctx.font = '11px sans-serif';
+  ctx.fillText(`grid = ${step}`, 6, W - 6);
+
+  if (verts.length > 2 && !drawing && !polyOpen && $('shade').checked) shade();
+  if (verts.length > 1) {
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 2.2; ctx.beginPath();
+    verts.forEach(([x, y], k) => { const [a, b] = toPx(x, y); k ? ctx.lineTo(a, b) : ctx.moveTo(a, b); });
+    if (!drawing && !polyOpen) ctx.closePath();
+    ctx.stroke();
+    if (!drawing && !polyOpen) arrows();
+  }
+  if (fnInfo) for (const [x, y, m] of fnInfo.poles) {
+    const [a, b] = toPx(x, y);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 2.5; ctx.beginPath();
+    ctx.moveTo(a - 6, b - 6); ctx.lineTo(a + 6, b + 6); ctx.moveTo(a + 6, b - 6); ctx.lineTo(a - 6, b + 6); ctx.stroke();
+    if (m > 1) { ctx.fillStyle = '#000'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(m, a + 7, b - 7); }
+  }
+}
+
+function shade() {
+  const n = 128, c = W / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const [x, y] = toZ((i + 0.5) * c, (j + 0.5) * c), w = winding(x, y);
+    if (w) { ctx.fillStyle = w > 0 ? `rgba(0,0,0,${0.25 * Math.min(w, 3)})` : `rgba(0,40,255,${0.3 * Math.min(-w, 3)})`; ctx.fillRect(i * c, j * c, c, c); }
+  }
+}
+
+function arrows() {
+  const P = verts.map(([x, y]) => toPx(x, y)), L = [0];
+  for (let k = 1; k <= P.length; k++) L.push(L[k - 1] + Math.hypot(P[k % P.length][0] - P[k - 1][0], P[k % P.length][1] - P[k - 1][1]));
+  const total = L[L.length - 1];
+  ctx.fillStyle = '#000';
+  for (let s = total / 12; s < total; s += total / 6) {
+    const k = L.findIndex(l => l > s) - 1, a = P[k], b = P[(k + 1) % P.length];
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), f = (s - L[k]) / (L[k + 1] - L[k]);
+    const x = a[0] + f * (b[0] - a[0]), y = a[1] + f * (b[1] - a[1]);
+    ctx.beginPath(); ctx.moveTo(x + 9 * Math.cos(ang), y + 9 * Math.sin(ang));
+    ctx.lineTo(x + 7 * Math.cos(ang + 2.5), y + 7 * Math.sin(ang + 2.5));
+    ctx.lineTo(x + 7 * Math.cos(ang - 2.5), y + 7 * Math.sin(ang - 2.5)); ctx.fill();
+  }
+}
+
+// ---------------------------------------------------------------- python calls
+function status(s) { $('status').textContent = s; }
+
+async function render() {
+  if (!py || !fnInfo || fnInfo.error) return draw();
+  const bytes = py.globals.get('image')(box(), IMG).toJs();
+  const off = new OffscreenCanvas(IMG, IMG);
+  off.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(bytes.buffer), IMG, IMG), 0, 0);
+  bg = off;
+  draw();
+}
+
+async function setFunction() {
+  if (!py) return;
+  status('finding poles…');
+  await new Promise(r => setTimeout(r, 10));
+  const t = performance.now();
+  try {
+    fnInfo = JSON.parse(py.globals.get('set_function')($('fx').value, box()));
+    status(fnInfo.reason ? `f = ${fnInfo.expr} — ${fnInfo.reason}` :
+      `f = ${fnInfo.expr}: ${fnInfo.poles.length} poles in view (${((performance.now() - t) / 1000).toFixed(2)} s)`);
+  } catch (e) {
+    fnInfo = {error: true, poles: []}; bg = null;
+    $('result').textContent = 'Fix f(z) first.'; $('poles').innerHTML = '';
+    status('could not parse f: ' + e.message.split('\n').filter(Boolean).slice(-1)[0]);
+  }
+  await render();
+  if (verts.length > 2 && !polyOpen) evaluate();
+}
+
+function evaluate() {
+  if (!py || !fnInfo || fnInfo.error || verts.length < 3) return;
+  const out = JSON.parse(py.globals.get('evaluate')(JSON.stringify(verts.map(v => v[0])), JSON.stringify(verts.map(v => v[1])), view.half / 100));
+  let h = `<div>LHS ∮ f dz &nbsp;= ${fmt(...out.lhs)}</div>`;
+  if (out.error) {
+    h += `<div class="bad">RHS: ${out.error}</div>`;
+    $('poles').innerHTML = '';
+  } else {
+    const d = Math.hypot(out.lhs[0] - out.rhs[0], out.lhs[1] - out.rhs[1]);
+    const scale = Math.max(1, Math.hypot(...out.rhs));
+    h += `<div>RHS 2πiΣnRes = ${fmt(...out.rhs)}</div>`;
+    h += `<div class="${d / scale < 1e-8 ? 'ok' : 'bad'}">|LHS − RHS| = ${d.toExponential(2)}</div>`;
+    const rows = out.table.filter(r => r[5] !== 0);
+    $('poles').innerHTML = rows.length ? `<table><tr><th>pole</th><th>order</th><th>residue</th><th>n(C,p)</th></tr>` +
+      rows.map(([x, y, m, rr, ri, n]) => `<tr><td>${fmt(x, y, 4)}</td><td>${m}</td><td>${fmt(rr, ri, 6)}</td><td>${n}</td></tr>`).join('') + '</table>'
+      : '<p class="hint">no poles enclosed</p>';
+    if (d / scale >= 1e-8) h += '<div class="hint">a pole is close to the contour: the quadrature has not converged</div>';
+  }
+  $('result').innerHTML = h;
+  draw();
+}
+
+// ---------------------------------------------------------------- interaction
+cv.addEventListener('pointerdown', e => {
+  const z = mouse(e);
+  if (mode === 'poly') {
+    if (!polyOpen) { verts = []; polyOpen = true; }
+    verts.push(z); draw(); return;
+  }
+  drawing = true; verts = mode === 'free' ? [z] : []; cv.dataset.cx = z[0]; cv.dataset.cy = z[1];
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!drawing) return;
+  const z = mouse(e);
+  if (mode === 'free') {
+    const last = verts[verts.length - 1];
+    if (Math.hypot(z[0] - last[0], z[1] - last[1]) > 3 * 2 * view.half / W) verts.push(z);
+  } else {
+    const cx = +cv.dataset.cx, cy = +cv.dataset.cy, R = Math.hypot(z[0] - cx, z[1] - cy);
+    verts = Array.from({length: 400}, (_, k) => [cx + R * Math.cos(2 * Math.PI * k / 400), cy + R * Math.sin(2 * Math.PI * k / 400)]);
+  }
+  draw();
+});
+cv.addEventListener('pointerup', () => { if (drawing) { drawing = false; evaluate(); draw(); } });
+cv.addEventListener('dblclick', () => {
+  if (mode !== 'poly') return;
+  verts.pop();                               // the double-click's second click added a duplicate
+  polyOpen = false; evaluate(); draw();
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [x, y] = mouse(e), s = Math.exp(e.deltaY * 0.0015);
+  view = {cx: x + (view.cx - x) * s, cy: y + (view.cy - y) * s, half: view.half * s};
+  clearTimeout(cv.zoomTimer); draw();
+  cv.zoomTimer = setTimeout(setFunction, 250);
+}, {passive: false});
+
+document.querySelectorAll('.mode').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.mode').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); mode = b.dataset.m; polyOpen = false;
+});
+$('clear').onclick = () => { verts = []; polyOpen = false; $('result').textContent = 'Draw a closed contour on the plane.'; $('poles').innerHTML = ''; draw(); };
+$('go').onclick = setFunction;
+$('fx').onkeydown = e => { if (e.key === 'Enter') setFunction(); };
+$('preset').onchange = e => { if (e.target.value) { $('fx').value = e.target.value; setFunction(); } };
+$('shade').onchange = draw;
+$('color').onchange = draw;
+$('rand').onclick = () => {
+  const r = () => (Math.round((Math.random() * 4 - 2) * 10) / 10).toFixed(1);
+  const k = 2 + Math.floor(Math.random() * 4);
+  const den = Array.from({length: k}, () => `(z - (${r()} + ${r()}*I))**${1 + Math.floor(Math.random() * 3)}`).join('*');
+  $('fx').value = `(z**2 + ${1 + Math.floor(Math.random() * 3)}*I*z - 1)/(${den})`;
+  setFunction();
+};
+
+draw();
+(async () => {
+  py = await loadPyodide();
+  await py.loadPackage(['numpy', 'sympy', 'mpmath']);
+  py.FS.writeFile('residue.py', await (await fetch('residue.py')).text());
+  py.runPython(document.getElementById('glue').textContent);
+  status('ready');
+  await setFunction();
+})();
+</script>
+</body>
+</html>
