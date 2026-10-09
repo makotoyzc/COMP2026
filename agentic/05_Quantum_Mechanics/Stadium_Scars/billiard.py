@@ -1,40 +1,62 @@
-"""Quantum billiards by a masked finite-difference Laplacian.
+"""Quantum billiards: eigenvalues of a particle in a hard-walled 2D box.
 
-Units: hbar = 1, 2m = 1, so the problem is  -lap psi = E psi  with psi = 0 on the
-wall, and E is a pure number set by the shape and its size.
+Units: hbar = 1 and 2m = 1, so the Schrodinger equation is
 
-THE MASK IS THE BOUNDARY CONDITION
+    -lap psi = E psi     inside the table
+         psi = 0         on the wall
+
+and E is a pure number set by the shape and its size.
+
+HOW THE EIGENVALUE PROBLEM IS BUILT
+-----------------------------------
+Put a square grid of spacing h over the table. Replace the Laplacian with the
+five-point second difference:
+
+    (-lap psi)_ij = [ 4 psi_ij - psi_i-1,j - psi_i+1,j
+                             - psi_i,j-1 - psi_i,j+1 ] / h^2
+
+Every grid node now holds one number, and -lap is a matrix acting on the list of
+those numbers. So "solve Schrodinger" becomes "find eigenvectors of a matrix",
+and the eigenvalues of that matrix are the energies.
+
+The matrix is big (71,000 x 71,000 at h = 1/200) but has at most 5 nonzeros per
+row, so it is stored sparse and solved with scipy's Lanczos routine eigsh.
+
+HOW THE BOUNDARY CONDITION GETS IN
 ----------------------------------
-Lay a uniform square grid of spacing h over a box that contains the table. Every
-node of that grid carries a value of psi. The mask is a boolean array over those
-nodes that answers one question per node:
+The mask is a boolean array, one entry per grid node, with one job:
 
-    mask[i, j] == True   ->  psi here is an UNKNOWN, solved for.
-    mask[i, j] == False  ->  psi here is KNOWN, and it is exactly 0.
+    mask True   ->  psi here is an unknown, the solver finds it
+    mask False  ->  psi here is known, and it is 0
 
-False means the node is on the wall or outside it. There is no third category.
-So the wall is not a term in the equation, not a penalty, not a large diagonal --
-it is the set of nodes we refuse to make unknowns, and the value they carry is
-zero. "Dirichlet" and "not in the mask" are the same statement.
+There is no third option. "On or past the wall" and "not an unknown" are the
+same thing, so the matrix only ever has mask.sum() rows.
 
-That is why the matrix below has fewer entries than the stencil suggests. The
-five-point form of the operator at an interior node is
+The stencil above needs four neighbour values. At a node against the wall, one
+of them is off the table, so you have to say what it is. The two standard
+choices do different things to the matrix:
 
-    (-lap psi)_ij = [ 4 psi_ij - psi_i-1,j - psi_i+1,j - psi_i,j-1 - psi_i,j+1 ] / h^2
+    psi_outside = 0          the term is 0, so drop that off-diagonal entry
+                             and keep the 4 on the diagonal.  Hard wall.
 
-and when a neighbour is outside the mask its psi is 0, so that whole term is 0 and
-we leave the off-diagonal entry out of the matrix. Nothing else changes. In
-particular the diagonal stays 4/h^2 at EVERY unknown, including the ones sitting
-right against a wall: dropping a neighbour must not also shrink the diagonal, or
-you have quietly reflected the wavefunction instead of pinning it to zero and you
-are solving a Neumann problem. The zeros live off the diagonal, never on it.
+    psi_outside = psi_here   the term becomes +psi_here/h^2, which cancels one
+                             unit of the diagonal, so the 4 becomes a 3.
+                             Reflecting wall.
 
-Three places the zeros show up, and all three are the same zero:
-  1. matrix assembly   -- a link to a masked-out neighbour is simply absent,
-  2. the unknown count -- the matrix is N x N with N = mask.sum(), nothing more,
-  3. reconstruction    -- scatter the eigenvector back with np.zeros(mask.shape),
-                          so every node outside the mask is literally 0.0 in the
-                          array we plot.
+That is the entire difference. Same mask, same off-diagonal entries; a hard wall
+has 4 on the diagonal everywhere and a reflecting wall has (number of links
+kept). Nothing else in the code mentions the boundary.
+
+The practical warning is that getting this wrong is silent. If you drop a
+neighbour and also drop the 1 from the diagonal, the code runs fine and returns
+a perfectly good spectrum of the wrong problem. checks_eigenvalues.py builds
+both matrices on purpose and shows they disagree in the first digit.
+
+The zeros show up in three places, and they are all the same zero:
+  1. matrix assembly   a link to a masked-out neighbour is simply absent
+  2. problem size      the matrix is N x N with N = mask.sum(), no more
+  3. reconstruction    the eigenvector is scattered back into np.zeros(),
+                       so every node off the table is literally 0.0
 """
 import numpy as np
 import scipy.sparse as sp
@@ -100,13 +122,36 @@ def index_map(mask):
     return idx
 
 
-def laplacian(mask, h):
+def laplacian(mask, h, wall="hard"):
     """-lap as a sparse matrix over the masked nodes only.
 
     The index grid is padded with a ring of -1 so the four neighbour slices can be
     taken without np.roll wrapping the right edge onto the left. A link is written
-    only when BOTH ends are unknowns; a link to a -1 is the dropped term, i.e. the
-    boundary condition.
+    only when BOTH ends are unknowns.
+
+    wall = "hard" (psi = 0, Dirichlet) or "mirror" (dpsi/dn = 0, Neumann).
+
+    The off-diagonal part of the matrix is IDENTICAL for the two. The only
+    difference is the diagonal:
+
+        hard    diagonal = 4/h^2 at every node, even next to a wall
+        mirror  diagonal = (number of links kept)/h^2
+
+    Why that is the whole boundary condition. The stencil at a node needs four
+    neighbour values. For a node against the wall one of them is off the table,
+    so you have to say what it is:
+
+        psi_outside = 0           -> the term vanishes, drop the link,
+                                     keep the 4.  This is psi = 0 on the wall.
+        psi_outside = psi_here    -> the term becomes +psi_here/h^2, which
+                                     cancels one unit of the diagonal, so the
+                                     4 drops to 3.  This is a reflecting wall.
+
+    So the same mask with 4 on the diagonal has hard walls and with 3 has mirror
+    walls, and nothing else in the code changes. Use "mirror" only to show the
+    difference -- checks_eigenvalues.py does exactly that, and the two spectra
+    come out completely different, the mirror one starting at E = 0 because a
+    constant is allowed.
     """
     idx = index_map(mask)
     pad = np.full(np.array(mask.shape) + 2, -1, dtype=np.int64)
@@ -114,20 +159,26 @@ def laplacian(mask, h):
 
     here = pad[1:-1, 1:-1]
     n = int(mask.sum())
-    rows, cols, vals = [np.arange(n)], [np.arange(n)], [np.full(n, 4.0 / h ** 2)]
+    kept = np.zeros(n)
+    rows, cols, vals = [], [], []
 
     for nb in (pad[:-2, 1:-1], pad[2:, 1:-1], pad[1:-1, :-2], pad[1:-1, 2:]):
         link = (here >= 0) & (nb >= 0)          # both ends are unknowns
         rows.append(here[link])
         cols.append(nb[link])
         vals.append(np.full(int(link.sum()), -1.0 / h ** 2))
+        np.add.at(kept, here[link], 1.0)
+
+    diag = np.full(n, 4.0) if wall == "hard" else kept
+    rows.append(np.arange(n)); cols.append(np.arange(n))
+    vals.append(diag / h ** 2)
 
     return sp.csr_matrix((np.concatenate(vals),
                           (np.concatenate(rows), np.concatenate(cols))),
                          shape=(n, n))
 
 
-def solve(mask, h, k):
+def solve(mask, h, k, wall="hard"):
     """Lowest k eigenpairs. Returns E (k,) and psi (k, *mask.shape).
 
     eigsh with sigma=0 is shift-invert: it factors the matrix once and converges
@@ -138,7 +189,7 @@ def solve(mask, h, k):
     outside the mask, and normalised so that sum |psi|^2 h^2 = 1, i.e. the
     trapezoid-free discrete version of the integral over the table.
     """
-    E, V = eigsh(laplacian(mask, h), k=k, sigma=0.0)
+    E, V = eigsh(laplacian(mask, h, wall), k=k, sigma=-1e-8)
     order = np.argsort(E)
     E, V = E[order], V[:, order]
 
@@ -184,3 +235,19 @@ def exact_rect_continuum(nx, ny, h, count):
     m = np.arange(1, 400)[None, :]
     E = np.pi ** 2 * (n ** 2 / Lx ** 2 + m ** 2 / Ly ** 2)
     return np.sort(E.ravel())[:count]
+
+
+def exact_rect_mirror(nx, ny, h):
+    """Eigenvalues of the same rectangle with REFLECTING walls, exactly.
+
+    The mask is unchanged, so there are still (nx-1) by (ny-1) unknowns, but a
+    reflecting wall sits half a cell outside the last node, so the 1D problem on
+    N points has eigenvalues (4/h^2) sin^2(k pi / 2N) for k = 0 .. N-1 -- note k
+    starts at 0, where the hard-wall version started at 1. The k = m = 0 mode is
+    a constant with E = 0, which a hard wall forbids and a reflecting wall allows.
+    """
+    kx = np.arange(nx - 1)[:, None]
+    ky = np.arange(ny - 1)[None, :]
+    E = (4.0 / h ** 2) * (np.sin(kx * np.pi / (2 * (nx - 1))) ** 2
+                          + np.sin(ky * np.pi / (2 * (ny - 1))) ** 2)
+    return np.sort(E.ravel())
