@@ -44,12 +44,34 @@ Histogram all pair distances to get g(r). Pressure comes from g at contact:
 
     Z = P A / (N k T) = 1 + 2 eta g(1+)
 
-Checks: g(r) = 0 for r < 1 and g -> 1 at large r; Z matches the virial result
-1 + 2 eta + 3.128 eta^2 at eta = 0.1 to 0.3.
+Checks: g(r) = 0 for r < 1 and g -> 1 at large r; the first and second halves
+of the run agree (equilibrated); Z matches the virial series at eta <= 0.3.
+The two-term series 1 + 2 eta + 3.128 eta^2 is already 8% low at eta = 0.3, so
+the check uses seven known terms (the dropped terms add < 0.001 there).
+
+Result (N = 256, 8000 sweeps per eta): all four pass. Agreement is within 1.5
+error bars up to eta = 0.3 (Z = 2.064 +/- 0.006 vs 2.062).
 
 ### Step 3 — pictures near melting
 Snapshots at eta = 0.65, 0.70, 0.72, each disk colored by its local hexagonal
 order |psi_6|. Check: |psi_6| near 1 everywhere for a perfect triangular lattice.
+
+Step 3 as run (N = 288, hexagonal box, 6000 sweeps per eta, each eta started
+both from a crystal and from a squeezed liquid): Psi6 rises from ~0.1 at
+eta = 0.66 to ~0.8 at 0.74, with the rise between 0.68 and 0.72. The two starts
+agree at 0.66 and 0.70 but not at 0.68 or 0.71, so those runs have not
+equilibrated. Needs longer runs (in parallel, one process per eta).
+
+Step 3, second pass: 14 independent runs in a process pool (one per eta and
+start, seeds from SeedSequence.spawn), 60000 sweeps for 0.68-0.72 and 20000 at
+0.66 and 0.74; 4 min on 11 cores. Squeeze rewritten to shrink until the closest
+pair touches (the fixed 0.2% steps were almost always rejected at high eta).
+Now both starts agree within their fluctuations at every eta. The steep rise
+sits between eta = 0.69 and 0.71, where Bernard & Krauth put liquid-hexatic
+coexistence (0.700-0.716). There Psi6 swings between 0.3 and 0.75 over
+~10000-sweep stretches, the signature of a system flipping between ordered and
+disordered. N = 288 cannot tell hexatic from solid. Final configurations are in
+results_step3.npz; plot_step3.py redraws the figures without rerunning.
 
 ## Open decisions (yours)
 
