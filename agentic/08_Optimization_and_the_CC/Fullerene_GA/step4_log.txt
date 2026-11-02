@@ -1,0 +1,39 @@
+===== A. C20 isomers vs Deaven & Ho =====
+ring: E_b = -5.9730 eV/atom, gap = 0.612 eV, z2:20, 
+bowl: E_b = -6.1361 eV/atom, gap = 1.815 eV, z2:10 z3:10, 5-ring:1 6-ring:5
+cage: E_b = -6.0735 eV/atom, gap = 0.295 eV, z3:20, 5-ring:12
+ring - bowl: ours +0.1631,  D&H +0.1680 eV/atom;  energy-zero offset D&H - E_tot/N = -1.3790
+bowl - bowl: ours +0.0000,  D&H +0.0000 eV/atom;  energy-zero offset D&H - E_tot/N = -1.3840
+cage - bowl: ours +0.0625,  D&H +0.0580 eV/atom;  energy-zero offset D&H - E_tot/N = -1.3885
+ring bonds alternate 1.270 / 1.349 A (Peierls dimerization)
+C20 bowl - C60: ours +0.7214, D&H Fig. 1 ~ +0.72 eV/atom
+
+===== B. random multistart, 1000 starts per size =====
+multistart N = 10..24: 15000 jobs on 18 processes in 174.8 s
+  N  best E_b     class    hit distinct  calls  1st half  conv   classes of all minima
+ 10   -5.8679      ring   0.9%      181    134   +0.0000  100%   {'chain': 414, 'ring': 9, 'flat': 126, 'bowl': 7, 'sp3': 2, 'fragments': 442}
+ 11   -5.8094      ring   0.3%      242    162   +0.0000  100%   {'chain': 466, 'ring': 3, 'flat': 126, 'bowl': 5, 'sp3': 18, 'fragments': 382}
+ 12   -5.7797      flat   0.9%      324    182   +0.0000  100%   {'chain': 385, 'flat': 174, 'bowl': 24, 'sp3': 13, 'fragments': 404}
+ 13   -5.8646      flat   1.4%      380    218   +0.0000  100%   {'chain': 394, 'flat': 203, 'bowl': 21, 'sp3': 7, 'fragments': 375}
+ 14   -5.9678      ring   0.3%      414    248   +0.0000  100%   {'chain': 336, 'ring': 3, 'flat': 230, 'bowl': 48, 'sp3': 18, 'fragments': 365}
+ 15   -5.9157      ring   0.2%      457    280   +0.0000  100%   {'chain': 352, 'ring': 2, 'flat': 231, 'bowl': 70, 'sp3': 22, 'fragments': 323}
+ 16   -5.8982      flat   0.6%      471    307   +0.0000  100%   {'chain': 289, 'flat': 237, 'bowl': 91, 'sp3': 22, 'fragments': 361}
+ 17   -5.9355      flat   0.4%      484    343   +0.0000  100%   {'chain': 307, 'flat': 225, 'bowl': 120, 'sp3': 26, 'fragments': 322}
+ 18   -6.0029      ring   0.1%      473    378   +0.1007  100%   {'chain': 258, 'ring': 1, 'flat': 267, 'bowl': 135, 'sp3': 50, 'fragments': 289}
+ 19   -5.9422      flat   0.1%      481    411   +0.0164  100%   {'chain': 252, 'flat': 254, 'bowl': 161, 'sp3': 46, 'fragments': 287}
+ 20   -5.9484      flat   0.3%      469    440   +0.0360  100%   {'chain': 208, 'flat': 243, 'bowl': 206, 'sp3': 53, 'fragments': 290}
+ 21   -5.9269     chain   0.1%      464    467   +0.0000  100%   {'chain': 165, 'flat': 239, 'bowl': 254, 'sp3': 58, 'fragments': 284}
+ 22   -5.9297      flat   0.1%      471    500   +0.0000  100%   {'chain': 138, 'flat': 230, 'bowl': 280, 'sp3': 45, 'fragments': 307}
+ 23   -5.9831      bowl   0.1%      454    510   +0.0490  100%   {'chain': 132, 'flat': 227, 'bowl': 303, 'sp3': 73, 'fragments': 265}
+ 24   -5.9987      flat   0.1%      435    551   +0.0000  100%   {'chain': 98, 'flat': 201, 'bowl': 361, 'sp3': 82, 'fragments': 258}
+C20 ring: found by 0.0% of the starts
+C20 bowl: found by 0.0% of the starts
+C20 cage: found by 0.0% of the starts
+
+===== C. random multistart on C60, 720 starts =====
+multistart C60: 720 jobs on 18 processes in 208.0 s
+best of 720: E_b = -6.0973, +0.7602 above E_ref; E_b = -6.0973 eV/atom, gap = 0.404 eV, z1:3 z2:30 z3:27, 5-ring:3 6-ring:4
+median -5.8942; mean calls per start 885; converged 100%; classes {'flat': 1, 'bowl': 246, 'sp3': 307, 'fragments': 166}
+starts within 0.01 eV/atom of E_ref: 0
+saved step4_gallery.png, step4_landscape.png
+saved viewer_step4.html

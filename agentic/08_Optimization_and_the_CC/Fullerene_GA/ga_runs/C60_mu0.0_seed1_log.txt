@@ -1,0 +1,12 @@
+===== C60, mu = 0.0, seed 1: target -6.8575 eV/atom =====
+  seed 1: 500 matings, 117549 calls, best -6.7209, worst -6.6056 eV/atom, 38 s
+  seed 1: 1000 matings, 153676 calls, best -6.7494, worst -6.7107 eV/atom, 49 s
+  seed 1: 1500 matings, 188543 calls, best -6.8151, worst -6.7302 eV/atom, 60 s
+  seed 1: 2000 matings, 222022 calls, best -6.8340, worst -6.7870 eV/atom, 71 s
+  seed 1: 2500 matings, 253927 calls, best -6.8340, worst -6.7999 eV/atom, 82 s
+  seed 1: 3000 matings, 286423 calls, best -6.8340, worst -6.8040 eV/atom, 92 s
+  seed 1: 3500 matings, 318985 calls, best -6.8340, worst -6.8049 eV/atom, 102 s
+  seed 1: 4000 matings, 350966 calls, best -6.8340, worst -6.8049 eV/atom, 112 s
+  seed 1: 4500 matings, 383312 calls, best -6.8340, worst -6.8049 eV/atom, 123 s
+  FOUND: best -6.8575 eV/atom (+0.0000 from target) after 4536 matings, 385836 calls total; last improvement at mating 4536; 98 children accepted; 124 s
+  best: cage, E_b = -6.8575 eV/atom, gap = 1.615 eV, z3:60, 5-ring:12 6-ring:20

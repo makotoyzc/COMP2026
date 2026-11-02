@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carbon Cluster Viewer</title>
+<style>
+  :root { --bg: #ffffff; --fg: #222222; --muted: #666666; --line: #dddddd; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181c; --fg: #e8e8e8; --muted: #9a9a9a; --line: #333333; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 15px/1.4 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { margin: 4px 0 12px; color: var(--muted); }
+  canvas { width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--line);
+           border-radius: 6px; touch-action: none; cursor: grab; display: block; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  input[type=range] { flex: 1; min-width: 160px; }
+  select, button { font: inherit; padding: 4px 8px; }
+  #info { font-variant-numeric: tabular-nums; }
+  .key span { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+              margin: 0 4px 0 12px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Carbon clusters</h1>
+  <p>Drag to rotate. Pick a run from the menu; the slider steps through it.</p>
+  <div class="row">
+    <select id="run"></select>
+    <button id="play">Play</button>
+    <input id="step" type="range" min="0" value="0">
+  </div>
+  <div id="info"></div>
+  <canvas id="c"></canvas>
+  <p class="key">Atoms by bond count:<span style="background:#2ca02c"></span>2 (chain)
+    <span style="background:#1f77b4"></span>3 (sp2)<span style="background:#ff7f0e"></span>4 (sp3)
+    &nbsp; Bonds: <b style="color:#d62728">red</b> on a pentagon.</p>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+const runSel = document.getElementById("run"), slider = document.getElementById("step");
+const info = document.getElementById("info"), playBtn = document.getElementById("play");
+let run = 0, step = 0, rot = [[1,0,0],[0,1,0],[0,0,1]], timer = null;
+
+DATA.forEach((d, k) => runSel.add(new Option(d.label, k)));
+
+function mul(a, b) { return a.map(r => [0,1,2].map(j => r[0]*b[0][j] + r[1]*b[1][j] + r[2]*b[2][j])); }
+function rotXY(dx, dy) {
+  const cx = Math.cos(dy), sx = Math.sin(dy), cy = Math.cos(dx), sy = Math.sin(dx);
+  rot = mul(mul([[1,0,0],[0,cx,-sx],[0,sx,cx]], [[cy,0,sy],[0,1,0],[-sy,0,cy]]), rot);
+}
+function scaleFor(frames) {
+  let m = 0;
+  for (const f of frames) for (const p of f.x) m = Math.max(m, Math.hypot(...p));
+  return m;
+}
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth;
+  cv.width = cv.height = W * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, W);
+  const d = DATA[run], f = d.frames[step], s = 0.42 * W / d.rmax;
+  const P = f.x.map(p => [0,1,2].map(i => rot[i][0]*p[0] + rot[i][1]*p[1] + rot[i][2]*p[2]));
+  const items = [];
+  for (const [a, b, pent] of f.b) items.push({z: (P[a][2] + P[b][2]) / 2 - 0.01, a, b, pent});
+  P.forEach((p, k) => items.push({z: p[2], k}));
+  items.sort((u, v) => u.z - v.z);   // far to near
+  const X = p => W/2 + s*p[0], Y = p => W/2 - s*p[1];
+  for (const it of items) {
+    const fog = 0.55 + 0.45 * (it.z / d.rmax + 1) / 2;
+    ctx.globalAlpha = fog;
+    if (it.k === undefined) {
+      ctx.strokeStyle = it.pent ? "#d62728" : "#8a8a8a";
+      ctx.lineWidth = it.pent ? 3 : 2;
+      ctx.beginPath(); ctx.moveTo(X(P[it.a]), Y(P[it.a])); ctx.lineTo(X(P[it.b]), Y(P[it.b])); ctx.stroke();
+    } else {
+      const p = P[it.k], r = Math.max(3, 0.15 * s);
+      ctx.fillStyle = f.c[it.k]; ctx.strokeStyle = "#000";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.arc(X(p), Y(p), r, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  info.textContent = `${d.unit} ${f.n} / ${d.frames[d.frames.length - 1].n} · binding energy ${f.E.toFixed(4)} eV/atom · ` +
+                     `${f.b.length} bonds`;
+}
+
+function setRun(k) {
+  run = k; step = 0;
+  DATA[k].rmax = scaleFor(DATA[k].frames);
+  slider.max = DATA[k].frames.length - 1; slider.value = 0;
+  draw();
+}
+runSel.onchange = () => setRun(+runSel.value);
+slider.oninput = () => { step = +slider.value; draw(); };
+playBtn.onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "Play"; return; }
+  if (step >= DATA[run].frames.length - 1) step = 0;
+  playBtn.textContent = "Pause";
+  timer = setInterval(() => {
+    if (step >= DATA[run].frames.length - 1) { playBtn.onclick(); return; }
+    step++; slider.value = step; draw();
+  }, 80);
+};
+let drag = null;
+cv.onpointerdown = e => { drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); };
+cv.onpointermove = e => {
+  if (!drag) return;
+  rotXY((e.clientX - drag[0]) * 0.01, (e.clientY - drag[1]) * 0.01);
+  drag = [e.clientX, e.clientY]; draw();
+};
+cv.onpointerup = () => { drag = null; };
+window.onresize = draw;
+rotXY(0.45, 0.35);   // tilt off the symmetry axis so front and back do not overlap
+setRun(0);
+</script>
+</body>
+</html>
