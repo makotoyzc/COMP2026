@@ -8,3 +8,5 @@ notes/*.log
 notes/*.out
 __pycache__/
 *.pyc
+.claude/
+notebooks/data/
